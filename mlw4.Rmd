@@ -1,0 +1,118 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Takayuki Sato"
+date: "Oct.4th.2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive Summary
+
+In this study, we conducted a machine learning(Random Forest) by using data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+We predict the manner in which they did the exercise. This is the "classe" variable in the training set.
+
+## Load Library
+
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+library(caret)
+library(randomForest)
+```
+
+## Load Training / Test data and Data manipulation
+```{r}
+temp <- tempfile()
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",temp)
+train <- read.csv(temp, header=T, stringsAsFactors = FALSE, na.strings=(c("NA", "")))
+train <- tbl_df(train)
+unlink(temp)
+
+temp <- tempfile()
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",temp)
+test <- read.csv(temp, header=T, stringsAsFactors = FALSE, na.strings=(c("NA", "")))
+test <- tbl_df(test)
+unlink(temp)
+
+## Combine training & test data
+full  <- bind_rows(train, test) # bind training & test data
+## Checking data size
+dim(full)
+## Checking NA data
+na_count_full <- sapply(full, function(y) sum(is.na(y)))
+head(na_count_full[na_count_full>0],15) 
+```
+There are many variables containing too many NA data.
+
+Since it is hard to impute those NA data, We decide to eliminate the variables.
+
+(Also, eliminate "X"(it's just a serial number) and "cvtd_timestamp"(dupulicates with "raw_stamp"") for machine learning. )
+```{r}
+full <- full %>% select(-contains("_pitch_"),-contains("_roll_"),-contains("_yaw_"),-contains("_picth_"),
+                          -var_total_accel_belt,- var_accel_arm,-var_accel_dumbbell ,-var_accel_forearm,
+                          -X, -cvtd_timestamp)
+## Checking NA data
+na_count_full <- sapply(full, function(y) sum(is.na(y)))
+na_count_full 
+```
+
+It seems much better.
+
+We conducted Some data manipulations for Machine Learning.
+```{r}
+## Factorize some variables
+full$classe  <- factor(full$classe)
+full$user_name <- factor(full$user_name)
+full$new_window <- factor(full$new_window)
+full$user_name <- factor(full$user_name)
+
+## Split the data back into a train set and a test set
+train3 <- full[1:19622,]
+test3 <- full[19623:19642,]
+train3 <- train3 %>% select(-problem_id)
+test3 <- test3 %>% select(-classe, -problem_id)
+```
+
+## Machine Learning (Random Forest)
+
+At first, we split training data into training_train/training_test for CV.
+```{r}
+## Spllit training data 
+set.seed(62433)
+inTrain <- createDataPartition(train3$classe, p=0.7, list=FALSE)
+training_train <- train3[inTrain,]
+training_test <- train3[-inTrain,]
+```
+
+We built Rondom Forest model by using training data set.
+Also, applied the model to training_test data set.
+
+```{r}
+set.seed(62433)
+mod_rf <- randomForest(classe ~., data=training_train, n.tree = 1000)
+prediction_rf <- predict(mod_rf, training_test)
+table(training_test$classe, prediction_rf)
+sum(diag(table(training_test$classe, prediction_rf)))/nrow(training_test)
+```
+
+The accuracy is over 99%.
+
+```{r}
+varImpPlot(mod_rf)
+```
+
+Looking the relative importance of variables, "raw_timestamp_part1", "num_window" and "roll_belt" are so high scores.
+
+
+## Predict by using test data.
+
+We finally predict 20 different test cases by using the Random Forest model.
+```{r}
+prediction_rft <- predict(mod_rf, test3)
+solution <- data.frame(Problem_ID = 1:20, classe = prediction_rft)
+solution
+```
